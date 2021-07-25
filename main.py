@@ -1,8 +1,6 @@
 import requests
-import urllib.request
 from bs4 import BeautifulSoup
 import re
-import string
 from string import digits
 import json
 from ModelRecipe import ModelRecipe
@@ -18,6 +16,8 @@ def saveRecipe(linkRecipeToDownload):
     description = findDescription(soup)
     category = findCategory(soup)
     imageBase64 = findImage(soup)
+    macros = findMacros(soup)
+    featured = findFeatured(soup)
 
     modelRecipe = ModelRecipe()
     modelRecipe.title = title
@@ -25,6 +25,9 @@ def saveRecipe(linkRecipeToDownload):
     modelRecipe.description = description
     modelRecipe.category = category
     modelRecipe.imageBase64 = imageBase64
+    modelRecipe.macros = macros
+    modelRecipe.featured = featured
+    modelRecipe.source = linkRecipeToDownload
 
     createFileJson(modelRecipe.toDictionary(), modelRecipe.title)
 
@@ -35,20 +38,46 @@ def findTitle(soup):
     return titleRecipe
 
 def findIngredients(soup):
-    allIngredients = []
+    allIngredients = {}
     for tag in soup.find_all(attrs={'class' : 'gz-ingredient'}):
-        link = tag.a.get('href')
+        # link = tag.a.get('href')
         nameIngredient = tag.a.string
         contents = tag.span.contents[0]
         quantityProduct = re.sub(r"\s+", " ",  contents).strip()
-        allIngredients.append([nameIngredient, quantityProduct])
+        allIngredients[nameIngredient.lower()] = quantityProduct
     return allIngredients
+
+def findMacros(soup):
+    macros_names = soup.find_all(attrs={'class' : 'gz-list-macros-name'})
+    macros_units = soup.find_all(attrs={'class' : 'gz-list-macros-unit'})
+    macros_values = soup.find_all(attrs={'class' : 'gz-list-macros-value'})
+    macros = {}
+    for idx in range(0, len(macros_names)):
+        mn = macros_names[idx].string.strip().lower()
+        macros[mn] = {}
+        macros[mn]["unit"] = macros_units[idx].string
+        macros[mn]["value"] = macros_values[idx].string
+    return macros
+
+def findFeatured(soup):
+    featured_data = {}
+    for tag in soup.find_all(attrs={'class' : 'gz-name-featured-data'}):
+        f_array = tag.get_text().split(":")
+        if len(f_array) > 1:
+            featured_data[tag.get_text().split(":")[0].lower()] = tag.get_text().split(":")[1].strip().lower()
+        elif len(f_array) == 0:
+            featured_data[tag.get_text().split(" ")[0].lower()] = " ".join(tag.get_text().split(" ")[1:]).strip().lower()
+    return featured_data
 
 def findDescription(soup):
     allDescription = ""
     for tag in soup.find_all(attrs={'class' : 'gz-content-recipe-step'}):
         removeNumbers = str.maketrans('', '', digits)
-        description = tag.p.text.translate(removeNumbers)
+        try:
+            description = tag.p.text.translate(removeNumbers)
+        except:
+            description = tag.get_text()
+            
         allDescription =  allDescription + description
     return allDescription
 
@@ -82,14 +111,14 @@ def findImage(soup):
 
     imageToBase64 = str(base64.b64encode(requests.get(imageURL).content))
     imageToBase64 = imageToBase64[2:len(imageToBase64) - 1]
-    return imageToBase64
+    return "data:image/jpg;base64,"+imageToBase64
 
 def createFileJson(recipes, name):
     compact_name = name.replace(" ", "_").lower()
     folderRecipes = "Recipes"
     if not os.path.exists(folderRecipes):
         os.makedirs(folderRecipes)
-    with open(folderRecipes + '/' + compact_name + '.json', 'w') as file:
+    with open(folderRecipes + '/' + compact_name + '.json', 'w', encoding="utf-8") as file:
         file.write(json.dumps(recipes, ensure_ascii=False))
 
 def downloadPage(linkToDownload):
@@ -105,6 +134,7 @@ def downloadAllRecipesFromGialloZafferano():
         for tag in soup.find_all(attrs={'class' : 'gz-title'}):
             link = tag.a.get('href')
             saveRecipe(link)
+            print(link)
             if debug :
                 break
 
